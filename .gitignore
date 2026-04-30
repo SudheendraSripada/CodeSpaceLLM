@@ -1,0 +1,15 @@
+.env
+*.pyc
+__pycache__/
+.pytest_cache/
+.venv/
+.python-deps/
+tmp*/
+api/assistant.db
+api/uploads/
+web/.next/
+web/node_modules/
+web/.env.local
+*.tsbuildinfo
+dist/
+build/

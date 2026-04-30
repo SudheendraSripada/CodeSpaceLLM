@@ -1,0 +1,31 @@
+{
+  "name": "Assistant Foundation",
+  "image": "mcr.microsoft.com/devcontainers/python:3.12-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "lts"
+    }
+  },
+  "forwardPorts": [3000, 8000],
+  "portsAttributes": {
+    "3000": {
+      "label": "Next.js web",
+      "onAutoForward": "notify"
+    },
+    "8000": {
+      "label": "FastAPI backend",
+      "onAutoForward": "notify"
+    }
+  },
+  "postCreateCommand": "pip install -r api/requirements.txt && cd web && npm install",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.pytest",
+        "esbenp.prettier-vscode"
+      ]
+    }
+  }
+}
+
