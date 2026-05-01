@@ -8,6 +8,7 @@ from fastapi import Depends, Header, HTTPException, Request, status
 from app.auth import CurrentUser, decode_access_token
 from app.config import Settings
 from app.db.session import connection_context
+from app.services.supabase_store import verify_supabase_user
 
 
 def get_settings(request: Request) -> Settings:
@@ -27,6 +28,9 @@ def get_current_user(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token")
 
     token = authorization.split(" ", 1)[1].strip()
+    if settings.auth_provider == "supabase":
+        return verify_supabase_user(settings, token)
+
     try:
         payload = decode_access_token(token, settings)
     except ValueError as exc:
@@ -45,4 +49,3 @@ def require_admin(user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
     if not user.is_admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
     return user
-

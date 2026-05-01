@@ -1,5 +1,7 @@
 "use client";
 
+import { isSupabaseAuthEnabled, supabase } from "@/lib/supabase";
+
 export type Role = "admin" | "user";
 
 export interface User {
@@ -51,7 +53,7 @@ export interface ChatResponse {
   message: MessageOut;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "";
 const TOKEN_KEY = "assistant_token";
 
 export function getStoredToken(): string | null {
@@ -68,6 +70,16 @@ export function clearToken() {
 }
 
 export async function login(email: string, password: string) {
+  if (isSupabaseAuthEnabled && supabase) {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) throw new Error(error.message);
+    if (!data.session || !data.user.email) throw new Error("Supabase did not return a session");
+    return {
+      access_token: data.session.access_token,
+      token_type: "bearer",
+      user: { id: data.user.id, email: data.user.email, role: "user" as Role }
+    };
+  }
   return apiFetch<AuthResponse>("/api/auth/login", {
     method: "POST",
     body: { email, password }
@@ -75,10 +87,30 @@ export async function login(email: string, password: string) {
 }
 
 export async function register(email: string, password: string) {
+  if (isSupabaseAuthEnabled && supabase) {
+    const { data, error } = await supabase.auth.signUp({ email, password });
+    if (error) throw new Error(error.message);
+    if (!data.session) {
+      throw new Error("Check your email to confirm your Supabase account, then sign in.");
+    }
+    if (!data.user?.email) throw new Error("Supabase did not return a user");
+    return {
+      access_token: data.session.access_token,
+      token_type: "bearer",
+      user: { id: data.user.id, email: data.user.email, role: "user" as Role }
+    };
+  }
   return apiFetch<AuthResponse>("/api/auth/register", {
     method: "POST",
     body: { email, password }
   });
+}
+
+export async function logout() {
+  if (isSupabaseAuthEnabled && supabase) {
+    await supabase.auth.signOut();
+  }
+  clearToken();
 }
 
 export async function me(token: string) {
@@ -159,4 +191,3 @@ async function apiFetch<T>(
 
   return response.json() as Promise<T>;
 }
-

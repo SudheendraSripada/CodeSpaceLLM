@@ -2,15 +2,15 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { clearToken, User } from "@/lib/api";
+import { logout as logoutSession, User } from "@/lib/api";
 import { LogOut, MessageSquare, Settings } from "lucide-react";
 
 export function AppShell({ user, children }: { user: User; children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
 
-  function logout() {
-    clearToken();
+  async function logout() {
+    await logoutSession();
     router.replace("/login");
   }
 
@@ -40,4 +40,3 @@ export function AppShell({ user, children }: { user: User; children: React.React
     </div>
   );
 }
-

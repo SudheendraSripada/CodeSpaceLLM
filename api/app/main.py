@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from app.config import Settings
 from app.db.schema import init_db
 from app.routes import auth, chat, files, settings, tools
+from app.services.supabase_store import SupabaseStore
 
 
 def create_app() -> FastAPI:
@@ -20,7 +21,10 @@ def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         app.state.settings = app_settings
-        init_db(app_settings)
+        if app_settings.data_backend == "supabase":
+            SupabaseStore(app_settings).ensure_defaults()
+        else:
+            init_db(app_settings)
         yield
 
     app = FastAPI(title="AI Assistant Foundation API", version="0.1.0", lifespan=lifespan)
@@ -64,4 +68,3 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
-

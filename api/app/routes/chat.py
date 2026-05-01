@@ -19,6 +19,7 @@ from app.services.conversation_service import (
 from app.services.file_processor import get_file_contexts
 from app.services.model_service import ModelService, ModelServiceError, image_part_from_file
 from app.services.settings_service import get_app_settings
+from app.services.supabase_store import SupabaseStore
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/chat", tags=["chat"])
@@ -28,7 +29,10 @@ router = APIRouter(prefix="/api/chat", tags=["chat"])
 def conversations(
     user: CurrentUser = Depends(get_current_user),
     db=Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> list[dict]:
+    if settings.data_backend == "supabase":
+        return SupabaseStore(settings).list_conversations(user)
     return list_conversations(db, user)
 
 
@@ -37,7 +41,10 @@ def messages(
     conversation_id: str,
     user: CurrentUser = Depends(get_current_user),
     db=Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> list[dict]:
+    if settings.data_backend == "supabase":
+        return SupabaseStore(settings).list_messages(user, conversation_id)
     return list_messages(db, user, conversation_id)
 
 
@@ -48,22 +55,36 @@ async def chat(
     db=Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> dict:
-    conversation = get_or_create_conversation(db, user, payload.conversation_id, payload.message)
-    file_contexts = get_file_contexts(db, user, payload.file_ids)
+    store = SupabaseStore(settings) if settings.data_backend == "supabase" else None
+    conversation = (
+        store.get_or_create_conversation(user, payload.conversation_id, payload.message)
+        if store
+        else get_or_create_conversation(db, user, payload.conversation_id, payload.message)
+    )
+    file_contexts = store.get_file_contexts(user, payload.file_ids) if store else get_file_contexts(db, user, payload.file_ids)
     attachment_summaries = [_attachment_out(item) for item in file_contexts]
 
     user_content_for_model = _message_with_file_context(payload.message, file_contexts, settings)
-    add_message(
-        db,
-        user=user,
-        conversation_id=conversation["id"],
-        role="user",
-        content=payload.message,
-        attachments=attachment_summaries,
-    )
+    if store:
+        store.add_message(
+            user=user,
+            conversation_id=conversation["id"],
+            role="user",
+            content=payload.message,
+            attachments=attachment_summaries,
+        )
+    else:
+        add_message(
+            db,
+            user=user,
+            conversation_id=conversation["id"],
+            role="user",
+            content=payload.message,
+            attachments=attachment_summaries,
+        )
 
-    app_settings = get_app_settings(db, settings)
-    history = model_history(db, user, conversation["id"])
+    app_settings = store.get_app_settings() if store else get_app_settings(db, settings)
+    history = store.model_history(user, conversation["id"]) if store else model_history(db, user, conversation["id"])
     if history and history[-1]["role"] == "user":
         history[-1]["content"] = user_content_for_model
 
@@ -77,15 +98,25 @@ async def chat(
         logger.exception("Chat model call failed")
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
-    assistant_message = add_message(
-        db,
-        user=user,
-        conversation_id=conversation["id"],
-        role="assistant",
-        content=model_response.content,
-    )
+    if store:
+        assistant_message = store.add_message(
+            user=user,
+            conversation_id=conversation["id"],
+            role="assistant",
+            content=model_response.content,
+        )
+        saved_conversation = store.get_conversation(user, conversation["id"])
+    else:
+        assistant_message = add_message(
+            db,
+            user=user,
+            conversation_id=conversation["id"],
+            role="assistant",
+            content=model_response.content,
+        )
+        saved_conversation = get_conversation(db, user, conversation["id"])
     return {
-        "conversation": get_conversation(db, user, conversation["id"]),
+        "conversation": saved_conversation,
         "message": assistant_message,
     }
 

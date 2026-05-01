@@ -40,7 +40,55 @@ class ModelService:
         if provider == "mock":
             return await self._mock_complete(model_name=model_name, messages=messages)
         if provider == "openai":
-            return await self._openai_complete(model_name=model_name, system_prompt=system_prompt, messages=messages)
+            return await self._chat_completions_complete(
+                provider_label="openai",
+                model_name=model_name,
+                system_prompt=system_prompt,
+                messages=messages,
+                base_url=self.settings.openai_base_url,
+                api_key=self.settings.openai_api_key,
+                missing_key_message="OPENAI_API_KEY is required when MODEL_PROVIDER=openai",
+            )
+        if provider in {"openai-compatible", "openai_compatible", "compatible"}:
+            return await self._chat_completions_complete(
+                provider_label="openai-compatible",
+                model_name=model_name,
+                system_prompt=system_prompt,
+                messages=messages,
+                base_url=self.settings.openai_compatible_base_url or self.settings.openai_base_url,
+                api_key=self.settings.openai_compatible_api_key or self.settings.openai_api_key,
+                missing_key_message="OPENAI_COMPATIBLE_API_KEY is required for MODEL_PROVIDER=openai-compatible",
+            )
+        if provider == "openrouter":
+            return await self._chat_completions_complete(
+                provider_label="openrouter",
+                model_name=model_name,
+                system_prompt=system_prompt,
+                messages=messages,
+                base_url=self.settings.openai_compatible_base_url or "https://openrouter.ai/api/v1",
+                api_key=self.settings.openrouter_api_key or self.settings.openai_compatible_api_key,
+                missing_key_message="OPENROUTER_API_KEY is required when MODEL_PROVIDER=openrouter",
+            )
+        if provider == "groq":
+            return await self._chat_completions_complete(
+                provider_label="groq",
+                model_name=model_name,
+                system_prompt=system_prompt,
+                messages=messages,
+                base_url=self.settings.openai_compatible_base_url or "https://api.groq.com/openai/v1",
+                api_key=self.settings.groq_api_key or self.settings.openai_compatible_api_key,
+                missing_key_message="GROQ_API_KEY is required when MODEL_PROVIDER=groq",
+            )
+        if provider == "ollama":
+            return await self._chat_completions_complete(
+                provider_label="ollama",
+                model_name=model_name,
+                system_prompt=system_prompt,
+                messages=messages,
+                base_url=self.settings.openai_compatible_base_url or "http://localhost:11434/v1",
+                api_key=self.settings.openai_compatible_api_key or "ollama",
+                missing_key_message="Ollama does not require a real API key",
+            )
         if provider in {"anthropic", "claude"}:
             return await self._anthropic_complete(model_name=model_name, system_prompt=system_prompt, messages=messages)
         raise ModelServiceError(f"Unsupported MODEL_PROVIDER '{provider}'")
@@ -57,15 +105,19 @@ class ModelService:
             model=model_name,
         )
 
-    async def _openai_complete(
+    async def _chat_completions_complete(
         self,
         *,
+        provider_label: str,
         model_name: str,
         system_prompt: str,
         messages: list[dict[str, Any]],
+        base_url: str,
+        api_key: str | None,
+        missing_key_message: str,
     ) -> ModelResponse:
-        if not self.settings.openai_api_key:
-            raise ModelServiceError("OPENAI_API_KEY is required when MODEL_PROVIDER=openai")
+        if not api_key:
+            raise ModelServiceError(missing_key_message)
         payload = {
             "model": model_name,
             "temperature": self.settings.model_temperature,
@@ -73,15 +125,15 @@ class ModelService:
             "messages": [{"role": "system", "content": system_prompt}, *_openai_messages(messages)],
         }
         data = await self._post_json(
-            f"{self.settings.openai_base_url.rstrip('/')}/chat/completions",
-            headers={"Authorization": f"Bearer {self.settings.openai_api_key}"},
+            f"{base_url.rstrip('/')}/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}", **_provider_headers(provider_label)},
             json_body=payload,
         )
         try:
             content = data["choices"][0]["message"]["content"] or ""
         except (KeyError, IndexError, TypeError) as exc:
             raise ModelServiceError("OpenAI response did not include assistant content") from exc
-        return ModelResponse(content=content, provider="openai", model=model_name)
+        return ModelResponse(content=content, provider=provider_label, model=model_name)
 
     async def _anthropic_complete(
         self,
@@ -251,3 +303,12 @@ def _provider_error_message(error: Exception | None) -> str:
     if error is None:
         return "Model provider request failed"
     return f"Model provider request failed: {error}"
+
+
+def _provider_headers(provider_label: str) -> dict[str, str]:
+    if provider_label == "openrouter":
+        return {
+            "HTTP-Referer": "https://github.com/SudheendraSripada/CodeSpaceLLM",
+            "X-Title": "CodeSpaceLLM",
+        }
+    return {}
